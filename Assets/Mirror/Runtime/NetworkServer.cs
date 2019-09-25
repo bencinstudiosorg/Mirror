@@ -228,7 +228,7 @@ namespace Mirror
                 bool result = true;
                 foreach (KeyValuePair<int, NetworkConnection> kvp in identity.observers)
                 {
-                    result &= kvp.Value.SendBytes(bytes);
+                    result &= kvp.Value.SendBytes(new ArraySegment<byte>(bytes));
                 }
                 return result;
             }
@@ -243,15 +243,22 @@ namespace Mirror
 
             if (identity != null && identity.observers != null)
             {
-                // pack message into byte[] once
-                byte[] bytes = MessagePacker.Pack(msg);
+                // get writer from pool
+                NetworkWriter writer = NetworkWriterPool.GetWriter();
+
+                // pack message only once
+                MessagePacker.Pack(msg, writer);
+                ArraySegment<byte> segment = writer.ToArraySegment();
 
                 bool result = true;
                 foreach (KeyValuePair<int, NetworkConnection> kvp in identity.observers)
                 {
-                    result &= kvp.Value.SendBytes(bytes);
+                    result &= kvp.Value.SendBytes(segment);
                 }
-                NetworkDiagnostics.OnSend(msg, Channels.DefaultReliable, bytes.Length, identity.observers.Count);
+                NetworkDiagnostics.OnSend(msg, Channels.DefaultReliable, segment.Count, identity.observers.Count);
+
+                // recycle writer and return
+                NetworkWriterPool.Recycle(writer);
                 return result;
             }
             return false;
@@ -272,7 +279,7 @@ namespace Mirror
             bool result = true;
             foreach (KeyValuePair<int, NetworkConnection> kvp in connections)
             {
-                result &= kvp.Value.SendBytes(bytes, channelId);
+                result &= kvp.Value.SendBytes(new ArraySegment<byte>(bytes), channelId);
             }
             return result;
         }
@@ -289,17 +296,23 @@ namespace Mirror
         {
             if (LogFilter.Debug) Debug.Log("Server.SendToAll id:" + typeof(T));
 
-            // pack message into byte[] once
-            byte[] bytes = MessagePacker.Pack(msg);
+            // get writer from pool
+            NetworkWriter writer = NetworkWriterPool.GetWriter();
+
+            // pack message only once
+            MessagePacker.Pack(msg, writer);
+            ArraySegment<byte> segment = writer.ToArraySegment();
 
             bool result = true;
             foreach (KeyValuePair<int, NetworkConnection> kvp in connections)
             {
-                result &= kvp.Value.SendBytes(bytes, channelId);
+                result &= kvp.Value.SendBytes(segment, channelId);
             }
 
-            NetworkDiagnostics.OnSend(msg, channelId, bytes.Length, connections.Count);
+            NetworkDiagnostics.OnSend(msg, channelId, segment.Count, connections.Count);
 
+            // recycle writer and return
+            NetworkWriterPool.Recycle(writer);
             return result;
         }
 
@@ -322,7 +335,7 @@ namespace Mirror
                 {
                     if (kvp.Value.isReady)
                     {
-                        result &= kvp.Value.SendBytes(bytes, channelId);
+                        result &= kvp.Value.SendBytes(new ArraySegment<byte>(bytes), channelId);
                     }
                 }
                 return result;
@@ -346,8 +359,12 @@ namespace Mirror
 
             if (identity != null && identity.observers != null)
             {
-                // pack message into byte[] once
-                byte[] bytes = MessagePacker.Pack(msg);
+                // get writer from pool
+                NetworkWriter writer = NetworkWriterPool.GetWriter();
+
+                // pack message only once
+                MessagePacker.Pack(msg, writer);
+                ArraySegment<byte> segment = writer.ToArraySegment();
                 int count = 0;
 
                 bool result = true;
@@ -357,11 +374,14 @@ namespace Mirror
                     if ((!isSelf || includeSelf) &&
                         kvp.Value.isReady)
                     {
-                        result &= kvp.Value.SendBytes(bytes, channelId);
+                        result &= kvp.Value.SendBytes(segment, channelId);
                         count++;
                     }
                 }
-                NetworkDiagnostics.OnSend(msg, channelId, bytes.Length, count);
+                NetworkDiagnostics.OnSend(msg, channelId, segment.Count, count);
+
+                // recycle writer and return
+                NetworkWriterPool.Recycle(writer);
                 return result;
             }
             return false;
